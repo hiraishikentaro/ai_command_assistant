@@ -2,11 +2,15 @@ use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use std::io;
+use tokio::runtime::Runtime;
 
+use crate::command::{CommandGenerator, CommandSafetyValidator};
 use crate::input::{InputMode, InputProcessor};
 
 pub struct InteractiveMode {
     editor: DefaultEditor,
+    runtime: Runtime,
+    command_generator: Option<CommandGenerator>,
 }
 
 impl InteractiveMode {
@@ -19,7 +23,39 @@ impl InteractiveMode {
             )
         })?;
 
-        Ok(Self { editor })
+        // Create a tokio runtime for async operations
+        let runtime = Runtime::new().map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to create runtime: {}", e),
+            )
+        })?;
+
+        // Initialize the command generator
+        let command_generator = runtime.block_on(async {
+            match CommandGenerator::new().await {
+                Ok(generator) => Some(generator),
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        format!("Warning: Could not initialize command generator: {}", e)
+                            .bright_yellow()
+                    );
+                    eprintln!(
+                        "{}",
+                        "Commands will not be available until API key is configured."
+                            .bright_yellow()
+                    );
+                    None
+                }
+            }
+        });
+
+        Ok(Self {
+            editor,
+            runtime,
+            command_generator,
+        })
     }
 
     /// Start the interactive mode
@@ -79,12 +115,43 @@ impl InteractiveMode {
         // Use the input processor module to process the input
         match InputProcessor::process(input, InputMode::Interactive) {
             Ok(user_input) => {
-                println!("\nDetected language: {:?}", user_input.detected_language);
+                if self.command_generator.is_none() {
+                    eprintln!(
+                        "{}",
+                        "Command generator is not available. Please configure your API key."
+                            .bright_yellow()
+                    );
+                    return Ok(());
+                }
 
-                // TODO: Call command generation logic here
-                println!(
-                    "\n(Command generation and display will be implemented here - coming soon)"
-                );
+                // Generate commands using the generator
+                self.runtime.block_on(async {
+                    println!("\n{}", "Generating commands...".bright_yellow());
+
+                    match self
+                        .command_generator
+                        .as_ref()
+                        .unwrap()
+                        .generate(&user_input)
+                        .await
+                    {
+                        Ok(mut command_generation) => {
+                            // Validate command safety
+                            let validator = CommandSafetyValidator::default();
+                            validator.validate_all(&mut command_generation.commands);
+
+                            // Display results
+                            display_commands(&command_generation, true); // Always show verbose output in interactive mode
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "{}",
+                                format!("Error generating commands: {}", e).bright_red()
+                            );
+                        }
+                    }
+                });
+
                 println!(); // Add empty line for readability
             }
             Err(e) => {
@@ -93,5 +160,76 @@ impl InteractiveMode {
         }
 
         Ok(())
+    }
+}
+
+/// Display the generated commands
+fn display_commands(generation: &crate::llm::CommandGeneration, verbose: bool) {
+    if generation.commands.is_empty() {
+        println!("{}", "No commands were generated.".bright_red());
+        return;
+    }
+
+    // Display ambiguity notice if applicable
+    if generation.is_ambiguous {
+        println!(
+            "\n{}",
+            "Your request was ambiguous. Here are possible interpretations:".bright_yellow()
+        );
+
+        if !generation.additional_questions.is_empty() {
+            println!("\n{}", "You might want to clarify:".bright_cyan());
+            for (i, question) in generation.additional_questions.iter().enumerate() {
+                println!("  {}. {}", i + 1, question);
+            }
+            println!();
+        }
+    }
+
+    // Display each command
+    for (i, cmd) in generation.commands.iter().enumerate() {
+        if generation.commands.len() > 1 {
+            println!(
+                "\n{} {}",
+                "Option".bright_blue(),
+                (i + 1).to_string().bright_blue()
+            );
+        }
+
+        // Display command with appropriate color based on safety
+        let command_display = match cmd.safety_level {
+            crate::llm::SafetyLevel::Safe => cmd.command.bright_green(),
+            crate::llm::SafetyLevel::Caution => cmd.command.bright_yellow(),
+            crate::llm::SafetyLevel::Dangerous => cmd.command.bright_red(),
+        };
+
+        println!("\n{} {}", "Command:".bright_blue(), command_display);
+
+        // Display safety level
+        let safety_display = match cmd.safety_level {
+            crate::llm::SafetyLevel::Safe => "SAFE".bright_green(),
+            crate::llm::SafetyLevel::Caution => "CAUTION".bright_yellow(),
+            crate::llm::SafetyLevel::Dangerous => "DANGEROUS".bright_red(),
+        };
+        println!("{} {}", "Safety:".bright_blue(), safety_display);
+
+        // Display description
+        println!("{} {}", "Description:".bright_blue(), cmd.description);
+
+        // Display detailed explanation if verbose
+        if verbose {
+            println!("\n{} {}", "Purpose:".bright_blue(), cmd.explanation.purpose);
+
+            if !cmd.explanation.components.is_empty() {
+                println!("\n{}", "Components:".bright_blue());
+                for component in &cmd.explanation.components {
+                    println!(
+                        "  {} - {}",
+                        component.part.bright_cyan(),
+                        component.explanation
+                    );
+                }
+            }
+        }
     }
 }
