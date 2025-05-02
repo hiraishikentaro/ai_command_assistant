@@ -2,6 +2,7 @@ pub mod client;
 pub mod config;
 pub mod error;
 pub mod prompt;
+pub mod providers;
 pub mod request;
 pub mod response;
 
@@ -10,4 +11,5 @@ pub use client::LlmClient;
 pub use config::LlmConfig;
 pub use error::LlmError;
 pub use prompt::PromptTemplate;
+pub use providers::LlmProvider;
 pub use response::{CommandCandidate, CommandGeneration, SafetyLevel};

@@ -1,4 +1,4 @@
-use acia::cli::{Args, InteractiveMode};
+use acia::cli::{Args, ConfigCommand, InteractiveMode};
 use acia::command::{CommandGenerator, CommandSafetyValidator};
 use acia::input::{InputMode, InputProcessor};
 use anyhow::Result;
@@ -14,8 +14,11 @@ async fn main() -> Result<()> {
     // Parse command line arguments
     let args = Args::parse_args();
 
-    // Determine the mode (interactive or command line arguments)
-    if args.is_interactive_mode() {
+    // Determine which command to run
+    if args.is_config_command() {
+        // Run config command
+        ConfigCommand::run().await?;
+    } else if args.is_interactive_mode() {
         // Run in interactive mode
         let mut interactive = InteractiveMode::new()?;
         interactive.start()?;

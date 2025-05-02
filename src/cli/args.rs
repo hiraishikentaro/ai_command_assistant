@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 /// AI Command Assistant - CLI assistant that generates shell commands from natural language
 #[derive(Parser, Debug)]
@@ -24,6 +24,17 @@ pub struct Args {
     /// Display detailed explanation
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// Subcommands
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+/// CLI Subcommands
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Configure API settings and providers
+    Config,
 }
 
 impl Args {
@@ -34,6 +45,11 @@ impl Args {
 
     /// Check if we should start in interactive mode
     pub fn is_interactive_mode(&self) -> bool {
-        self.input.is_none()
+        self.input.is_none() && self.command.is_none()
+    }
+
+    /// Check if we should run the config command
+    pub fn is_config_command(&self) -> bool {
+        matches!(self.command, Some(Commands::Config))
     }
 }
