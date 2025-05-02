@@ -1,6 +1,6 @@
 use colored::Colorize;
-use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 use std::io;
 use tokio::runtime::Runtime;
 
@@ -196,40 +196,31 @@ fn display_commands(generation: &crate::llm::CommandGeneration, verbose: bool) {
             );
         }
 
-        // Display command with appropriate color based on safety
-        let command_display = match cmd.safety_level {
-            crate::llm::SafetyLevel::Safe => cmd.command.bright_green(),
-            crate::llm::SafetyLevel::Caution => cmd.command.bright_yellow(),
-            crate::llm::SafetyLevel::Dangerous => cmd.command.bright_red(),
-        };
+        // Create a formatter for the command explanation
+        let formatter = crate::explanation::CommandExplanationFormatter::default()
+            .with_terminal_width(
+                // Try to get the terminal width, default to 80 if not available
+                terminal_size::terminal_size()
+                    .map(|(width, _)| width.0 as usize)
+                    .unwrap_or(80),
+            )
+            .with_related_commands(verbose);
 
-        println!("\n{} {}", "Command:".bright_blue(), command_display);
+        // Format and print the explanation
+        let formatted = formatter.format(cmd);
+        print!("{}", formatted);
 
-        // Display safety level
-        let safety_display = match cmd.safety_level {
-            crate::llm::SafetyLevel::Safe => "SAFE".bright_green(),
-            crate::llm::SafetyLevel::Caution => "CAUTION".bright_yellow(),
-            crate::llm::SafetyLevel::Dangerous => "DANGEROUS".bright_red(),
-        };
-        println!("{} {}", "Safety:".bright_blue(), safety_display);
-
-        // Display description
-        println!("{} {}", "Description:".bright_blue(), cmd.description);
-
-        // Display detailed explanation if verbose
-        if verbose {
-            println!("\n{} {}", "Purpose:".bright_blue(), cmd.explanation.purpose);
-
-            if !cmd.explanation.components.is_empty() {
-                println!("\n{}", "Components:".bright_blue());
-                for component in &cmd.explanation.components {
-                    println!(
-                        "  {} - {}",
-                        component.part.bright_cyan(),
-                        component.explanation
-                    );
-                }
-            }
+        // Additional safety warning for dangerous commands
+        if cmd.safety_level == crate::llm::SafetyLevel::Dangerous {
+            println!(
+                "{}",
+                "⚠️  WARNING: This command may cause data loss or system changes! ⚠️".bright_red()
+            );
+        } else if cmd.safety_level == crate::llm::SafetyLevel::Caution {
+            println!(
+                "{}",
+                "⚠️  Caution: Review this command before execution.".bright_yellow()
+            );
         }
     }
 }

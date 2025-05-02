@@ -12,7 +12,14 @@ pub struct CommandGenerator {
 impl CommandGenerator {
     /// Create a new command generator with default configuration
     pub async fn new() -> Result<Self, LlmError> {
-        let config = LlmConfig::new();
+        // Load the configuration from file instead of using the default
+        let config = match LlmConfig::load() {
+            Ok(config) => config,
+            Err(e) => {
+                log::warn!("Failed to load LLM config, using default: {}", e);
+                LlmConfig::new()
+            }
+        };
         Self::with_config(config).await
     }
 
@@ -41,8 +48,8 @@ impl CommandGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::response::{CommandCandidate, CommandComponent, CommandExplanation};
     use crate::llm::SafetyLevel;
+    use crate::llm::response::{CommandCandidate, CommandComponent, CommandExplanation};
     use mockall::predicate::*;
     use mockall::*;
 

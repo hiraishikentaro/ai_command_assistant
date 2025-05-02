@@ -61,7 +61,6 @@ impl LlmConfig {
                         match toml::from_str::<LlmConfig>(&content) {
                             Ok(file_config) => {
                                 config = file_config;
-                                debug!("Loaded config from file: {:?}", config_path);
 
                                 // Load providers config
                                 if let Some(providers_section) = content.find("[providers]") {
@@ -92,7 +91,8 @@ impl LlmConfig {
             LlmProvider::Gemini,
             LlmProvider::Claude,
         ] {
-            if let Ok(api_key) = env::var(provider.api_key_env_var()) {
+            let env_var = provider.api_key_env_var();
+            if let Ok(api_key) = env::var(env_var) {
                 if !api_key.is_empty() {
                     let model = provider.default_models()[0].to_string();
                     let provider_config = ProviderConfig::new(api_key.clone(), model);
@@ -103,7 +103,6 @@ impl LlmConfig {
                     // Set the current provider's API key if it matches the active provider
                     if *provider == config.provider {
                         config.api_key = api_key;
-                        debug!("Loaded API key for {} from environment variable", provider);
                     }
                 }
             }
@@ -118,6 +117,7 @@ impl LlmConfig {
             if config.api_key.is_empty() {
                 config.api_key = provider_config.api_key.clone();
             }
+
             config.model = provider_config.model.clone();
         }
 
@@ -184,21 +184,17 @@ impl LlmConfig {
                 let section = line.trim_start_matches('[').trim_end_matches(']');
                 if section.starts_with("providers.") {
                     let provider_name = section.trim_start_matches("providers.").to_string();
-                    current_provider = Some(provider_name);
+                    current_provider = Some(provider_name.clone());
 
                     // Create provider config if it doesn't exist
-                    if !self
-                        .providers
-                        .contains_key(&current_provider.clone().unwrap())
-                    {
-                        let model = match LlmProvider::from_str(&current_provider.clone().unwrap())
-                        {
+                    if !self.providers.contains_key(&provider_name) {
+                        let model = match LlmProvider::from_str(&provider_name) {
                             Some(provider) => provider.default_models()[0].to_string(),
                             None => "unknown".to_string(),
                         };
 
                         self.providers.insert(
-                            current_provider.clone().unwrap(),
+                            provider_name.clone(),
                             ProviderConfig::new(String::new(), model),
                         );
                     }
@@ -218,10 +214,11 @@ impl LlmConfig {
                                 provider_config.model = value;
                             }
                             "is_active" => {
-                                provider_config.is_active = value.to_lowercase() == "true";
+                                let is_active = value.to_lowercase() == "true";
+                                provider_config.is_active = is_active;
 
                                 // Set this as the active provider
-                                if provider_config.is_active {
+                                if is_active {
                                     if let Some(provider) = LlmProvider::from_str(provider_name) {
                                         self.provider = provider;
                                         // Update main config with this provider's settings
